@@ -249,6 +249,25 @@ To rebuild and reinstall through the installer instead:
 ./install.sh macbar
 ```
 
+### Your editor will show errors that are not there
+
+Opening any of these repositories in an editor gives a wall of red:
+
+```
+Cannot find type 'BarSection' in scope
+Cannot find 'Palette' in scope
+Cannot find 'StorageSection' in scope
+```
+
+None of it is real. The module is assembled at build time out of four checkouts —
+`menubar/` here, plus one file from each section repository — and SourceKit-LSP has no manifest
+describing that, so it type-checks each file on its own, where of course the other half is
+missing. `menubar/build.sh` is the source of truth; if it compiles, the code is fine.
+
+A `Package.swift` would not fix it either, because there is no single package to describe: the
+module spans repositories by design. Live with the squiggles, or turn Swift diagnostics off for
+these folders.
+
 ## Uninstalling
 
 MacBar is a self-contained bundle:
