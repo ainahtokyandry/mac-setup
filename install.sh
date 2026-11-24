@@ -235,10 +235,11 @@ macbar_host() {
 
 # Each section is a repository of its own, and MacBar is built from whichever ones
 # are on the machine. They are cloned here rather than by the build so that a
-# fresh Mac ends up with all three, and so --update refreshes them.
+# fresh Mac ends up with all of them, and so --update refreshes them.
 SECTION_REPOS=(
   "https://github.com/ainahtokyandry/storage-bar.git StorageBar storage-bar"
   "https://github.com/ainahtokyandry/claude-usage.git claude-usage"
+  "https://github.com/ainahtokyandry/meetings-bar.git meetings-bar"
   "https://github.com/ainahtokyandry/job-search.git job-search"
 )
 
@@ -300,6 +301,7 @@ install_macbar() {
   add_login_item "$INSTALLED_APP"
   launch_app "$INSTALLED_APP"
   print -- "If macOS asks for permission to read 'Claude Code-credentials' from your keychain, choose Always Allow."
+  print -- "If it asks for access to your calendars and to send notifications, allow both: the meetings section lists today's meetings and reminds you before each one."
 }
 
 # job-search carries its own interactive installer, which asks about the
@@ -350,7 +352,7 @@ Tools (default: both, job-search first)
   job-search         a scheduled agent that sweeps job boards
   macbar             one menu bar item, assembled from this repository's host
                      and every section repository found under DIR: disk space,
-                     the Claude usage limits, and the job search
+                     the Claude usage limits, today's meetings, and the job search
 
   storage-bar and claude-usage are accepted as older names for macbar. They are
   sections of it now, not apps of their own.

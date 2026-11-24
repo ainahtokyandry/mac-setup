@@ -212,16 +212,25 @@ enum MenuKit {
 /// this and nothing else can be compiled either into MacBar alongside its
 /// siblings, or into an app of its own.
 protocol BarSection: AnyObject {
-    /// Dropdown header, and the label of its "show in menu bar" toggle.
+    /// Dropdown header, and the label of its switch under Sections.
     var name: String { get }
-    /// UserDefaults key behind that toggle. Owned by the section, so the host
-    /// has no list of sections to keep in step.
+    /// UserDefaults key behind that switch. Off means off: nothing in the bar,
+    /// nothing in the dropdown, and the section is not running. Owned by the
+    /// section, so the host has no list of sections to keep in step.
     var showKey: String { get }
     /// False hides the section everywhere — nothing in the bar, nothing in the
     /// menu, no polling. For a section whose subject is not on this Mac.
     var isAvailable: Bool { get }
 
+    /// Start polling: at launch for a section that is switched on, and again
+    /// whenever it is switched back on after deactivate().
     func activate(onUpdate: @escaping () -> Void)
+
+    /// The section was switched off, or is off at launch. Stop every clock and
+    /// withdraw anything handed to the system. It may come without an
+    /// activate() before it — at launch, to clear up after an earlier run — and
+    /// activate() may follow it.
+    func deactivate()
 
     /// The menu is opening, or the user asked for a refresh. `force` skips the
     /// polite floor between network polls.
@@ -239,5 +248,9 @@ protocol BarSection: AnyObject {
 
 extension BarSection {
     var isAvailable: Bool { true }
-    var showsInMenuBar: Bool { isAvailable && Defaults.bool(showKey) }
+    /// For a section written before deactivate() existed: it is hidden all the
+    /// same, but its clock keeps running until MacBar quits.
+    func deactivate() {}
+    /// On this Mac, and switched on.
+    var isEnabled: Bool { isAvailable && Defaults.bool(showKey) }
 }

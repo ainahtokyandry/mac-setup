@@ -40,6 +40,11 @@ enum Host {
                 answers[i] = (["not available on this Mac"], false)
                 continue
             }
+            // Off by choice is not a failed reading.
+            guard section.isEnabled else {
+                answers[i] = (["switched off under Sections"], true)
+                continue
+            }
             group.enter()
             let answered = OneShot()
             section.snapshot { lines, ok in

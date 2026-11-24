@@ -12,6 +12,10 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
     private var menuIsOpen = false
     private var redrawQueued = false
+    /// The sections activated and not since deactivated. Tracked here, not read
+    /// back from the preference, so that each switch starts or stops a section
+    /// exactly once.
+    private var running = Set<ObjectIdentifier>()
 
     init(sections: [BarSection]) {
         self.sections = sections.filter { $0.isAvailable }
@@ -33,8 +37,23 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         renderTitle()
         rebuildMenu()
-        for section in sections {
+        for section in sections { sync(section, launching: true) }
+    }
+
+    /// The sections switched on, in their usual order.
+    private var enabled: [BarSection] { sections.filter { $0.isEnabled } }
+
+    /// Starts or stops a section to match its switch. One that is off at launch
+    /// is told to stop all the same, so it can withdraw whatever an earlier run
+    /// left scheduled.
+    private func sync(_ section: BarSection, launching: Bool = false) {
+        let id = ObjectIdentifier(section)
+        if section.isEnabled {
+            guard !running.contains(id) else { return }
+            running.insert(id)
             section.activate { [weak self] in self?.setNeedsRedraw() }
+        } else if running.remove(id) != nil || launching {
+            section.deactivate()
         }
     }
 
@@ -78,8 +97,7 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem.button else { return }
 
         let compact = Defaults.bool(Defaults.compact)
-        let groups = sections
-            .filter { $0.showsInMenuBar }
+        let groups = enabled
             .map { $0.titleSegments(compact: compact) }
             .filter { !$0.isEmpty }
 
@@ -89,8 +107,8 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if i > 0 { title.append(Segment.label(" · ").attributed) }
             for segment in group { title.append(segment.attributed) }
         }
-        // Every section hidden: the icon alone would look like a hang, so say
-        // the readings are in the menu.
+        // Every section switched off, or none with anything to say: the icon
+        // alone would look like a hang, so put something beside it.
         if groups.isEmpty { title.append(Segment.label("⋯").attributed) }
 
         button.attributedTitle = title
@@ -101,39 +119,39 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
 
-        for section in sections {
+        for section in enabled {
             menu.addItem(MenuKit.header(section.name))
             for row in section.menuRows() { menu.addItem(row) }
             menu.addItem(.separator())
         }
 
         // "Refresh All" reads oddly with one section, which is how a section
-        // repository's own app is built.
+        // repository's own app is built — and switching off its only section
+        // would leave that app with nothing, so it gets no Sections menu.
         let refresh = sections.count > 1 ? "Refresh All" : "Refresh Now"
         menu.addItem(MenuKit.action(refresh, #selector(refreshAll), key: "r", target: self))
-        menu.addItem(menuBarSubmenu())
+        if sections.count > 1 { menu.addItem(sectionsSubmenu()) }
+
+        let compact = MenuKit.action("Compact Display", #selector(toggleCompact), target: self)
+        compact.state = Defaults.bool(Defaults.compact) ? .on : .off
+        menu.addItem(compact)
+
         menu.addItem(.separator())
         menu.addItem(MenuKit.action("Quit \(Self.appName)", #selector(quit), key: "q", target: self))
     }
 
-    /// What the single status item shows, and how tightly.
-    private func menuBarSubmenu() -> NSMenuItem {
+    /// A switch per section. Off takes it out of the menu bar and the dropdown,
+    /// and stops it.
+    private func sectionsSubmenu() -> NSMenuItem {
         let submenu = NSMenu()
-
-        let compact = MenuKit.action("Compact Display", #selector(toggleDefault),
-                                     target: self, object: Defaults.compact)
-        compact.state = Defaults.bool(Defaults.compact) ? .on : .off
-        submenu.addItem(compact)
-        submenu.addItem(.separator())
-
         for section in sections {
-            let item = MenuKit.action(section.name, #selector(toggleDefault),
+            let item = MenuKit.action(section.name, #selector(toggleSection),
                                       target: self, object: section.showKey)
-            item.state = Defaults.bool(section.showKey) ? .on : .off
+            item.state = section.isEnabled ? .on : .off
             submenu.addItem(item)
         }
 
-        let parent = NSMenuItem(title: "Menu Bar", action: nil, keyEquivalent: "")
+        let parent = NSMenuItem(title: "Sections", action: nil, keyEquivalent: "")
         parent.submenu = submenu
         return parent
     }
@@ -144,7 +162,7 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         menuIsOpen = true
-        for section in sections { section.refresh(force: false) }
+        for section in enabled { section.refresh(force: false) }
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -154,13 +172,22 @@ final class MenuBarController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Actions
 
     @objc private func refreshAll() {
-        for section in sections { section.refresh(force: true) }
+        for section in enabled { section.refresh(force: true) }
     }
 
-    @objc private func toggleDefault(_ sender: NSMenuItem) {
-        guard let key = sender.representedObject as? String else { return }
+    // The menu closes on the click and is rebuilt on its way open again, so
+    // neither switch needs to update its own checkmark.
+
+    @objc private func toggleSection(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let section = sections.first(where: { $0.showKey == key }) else { return }
         Defaults.toggle(key)
-        sender.state = Defaults.bool(key) ? .on : .off
+        sync(section)
+        renderTitle()
+    }
+
+    @objc private func toggleCompact() {
+        Defaults.toggle(Defaults.compact)
         renderTitle()
     }
 

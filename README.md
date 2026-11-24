@@ -2,10 +2,10 @@
 
 **MacBar** — one menu bar item for several small tools, and the installer that puts it there.
 What used to be three separate menu bar items, three apps and three icons, is now one item with
-three sections.
+a section for each, plus a fourth for today's meetings.
 
 ```
-⌾ 118 GB · 42·61·18% · ◷ Mon 08:00
+⌾ 118 GB · 42·61·18% · ○ 14:00 · ◷ Mon 08:00
 ```
 
 The tools themselves are not here. This repository holds the **host** — the status item, the
@@ -16,6 +16,7 @@ repository:
 | --- | --- | --- |
 | **Storage** | Free space on the boot volume | [ainahtokyandry/storage-bar](https://github.com/ainahtokyandry/storage-bar) |
 | **Claude usage** | The three Claude usage limits | [ainahtokyandry/claude-usage](https://github.com/ainahtokyandry/claude-usage) |
+| **Meetings** | Today's meetings, a click to join the call, a reminder 30 minutes before | [ainahtokyandry/meetings-bar](https://github.com/ainahtokyandry/meetings-bar) |
 | **Job search** | The next scheduled run, and whether one is in flight | [ainahtokyandry/job-search](https://github.com/ainahtokyandry/job-search) |
 
 So each tool keeps its own history, README and issues, and improving one means editing that
@@ -26,9 +27,10 @@ a section and rebuilding is one command:
 ./install.sh --update macbar
 ```
 
-Any section can be dropped from the menu bar line under **Menu Bar** in the dropdown, and
-**Compact Display** in the same submenu spells the readings out in full:
-`118 GB / 494 GB · 5h 42% · 7d 61% · Opus 18% · ◷ Mon 08:00`.
+Any section can be switched off under **Sections** in the dropdown. A section that is off is gone
+from the menu bar line and from the dropdown, and stops running until it is switched back on.
+Unticking **Compact Display** spells the readings out in full:
+`118 GB / 494 GB · 5h 42% · 7d 61% · Opus 18% · ○ 14:00 Design review · ◷ Mon 08:00`.
 
 ## How the split works
 
@@ -39,6 +41,7 @@ final class StorageSection: NSObject, BarSection {
     let name = "Storage"                                  // dropdown header, toggle label
     let showKey = "showStorage"                           // its own preference key
     func activate(onUpdate: @escaping () -> Void)         // start polling
+    func deactivate()                                     // switched off: stop
     func refresh(force: Bool)                             // the menu is opening
     func titleSegments(compact: Bool) -> [Segment]        // its part of the menu bar title
     func menuRows() -> [NSMenuItem]                       // its block of the dropdown
@@ -51,6 +54,12 @@ dropdown. It never touches the status item: it asks for a redraw, and the host d
 whose subject is not on this Mac — job search with no checkout — reports `isAvailable == false`
 and vanishes, so MacBar comes up one section short rather than one section wrong.
 
+Switched off under **Sections**, a section is told to `deactivate()`: it stops its clock and
+withdraws anything it handed to the system, such as pending reminders. A section that is off at
+launch is never activated, and is told to deactivate all the same so it can clear up after an
+earlier run. A section written before `deactivate()` existed gets a default that does nothing: it
+is hidden, but keeps polling until MacBar quits.
+
 `menubar/build.sh` finds sections by convention under `$HOME/Projects` (or `MACBAR_SRC_DIR`):
 
 ```
@@ -60,7 +69,9 @@ and vanishes, so MacBar comes up one section short rather than one section wrong
 
 A file only counts when it declares a `BarSection`, so an unrelated match in another project is
 passed over. The build then generates the list of what it found and compiles it in. Adding a
-fourth tool means writing one file in a new repository and cloning it — no edit here.
+tool means writing one file in a new repository and cloning it, with no edit here, unless the
+tool needs a permission that macOS asks for with a usage string in the bundle's `Info.plist`.
+The meetings section does: the calendar string is in `menubar/Info.plist`.
 
 Two constraints worth knowing, both from `swiftc`:
 
@@ -85,6 +96,9 @@ per repository, drifting.
 - [Claude Code](https://claude.com/claude-code), signed in — needed by the Claude usage section
   (it reads the OAuth token the CLI keeps in the login keychain) and by job-search (the CLI does
   the searching). The storage section needs nothing.
+- For the meetings section: access to your calendars and permission to send notifications, both
+  asked for when MacBar first opens. It reads whatever the Calendar app syncs, so add Google or
+  Exchange accounts under **System Settings > Internet Accounts**.
 
 ## Install
 
@@ -165,9 +179,9 @@ A dry run first is the cheap way to see exactly what will happen:
 menubar/
   main.swift        entry point: Host.run(sections:)
   Host.swift        startup and --print, shared with standalone section apps
-  Controller.swift  the one status item: title, dropdown, section toggles
+  Controller.swift  the one status item: title, dropdown, a switch per section
   Support.swift     the contract: BarSection, Segment, Palette, Fmt, MenuKit
-  Info.plist        the bundle, LSUIElement so there is no Dock icon
+  Info.plist        the bundle: LSUIElement so there is no Dock icon, and the calendar usage string
   build.sh          finds sections, generates their list, builds and signs
 install.sh          option parsing, preflight, checkouts, install, retire
 README.md           this file
@@ -234,6 +248,11 @@ Claude usage
   Weekly (all models)  █████████░░░░░  61%  resets Fri 31 Jul, 11:59 (in 1d 0h)
   Weekly (Opus)        ███░░░░░░░░░░░  18%  resets Fri 31 Jul, 11:59 (in 1d 0h)
 
+Meetings
+  ✓ 09:30–10:00  Standup  Meet: https://meet.google.com/abc-defg-hij
+    14:00–15:00  Design review  (in 2h 54m)  Meet: https://meet.google.com/klm-nopq-rst
+  Reminder 30 min before each meeting
+
 Job search
   Idle
   Next run:  Mon 3 Aug, 08:00  (in 2d 20h)
@@ -241,7 +260,8 @@ Job search
   Latest:    job-search-2026-07-31.md
 ```
 
-It exits non-zero if any section could not take its reading.
+It exits non-zero if any section could not take its reading. A section switched off prints
+`switched off under Sections`, which does not count as a failure.
 
 To rebuild and reinstall through the installer instead:
 
@@ -259,7 +279,7 @@ Cannot find 'Palette' in scope
 Cannot find 'StorageSection' in scope
 ```
 
-None of it is real. The module is assembled at build time out of four checkouts —
+None of it is real. The module is assembled at build time out of several checkouts —
 `menubar/` here, plus one file from each section repository — and SourceKit-LSP has no manifest
 describing that, so it type-checks each file on its own, where of course the other half is
 missing. `menubar/build.sh` is the source of truth; if it compiles, the code is fine.

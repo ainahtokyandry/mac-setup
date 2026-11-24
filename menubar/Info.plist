@@ -19,5 +19,11 @@
 	<true/>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
+	<!-- For the meetings section. Without these macOS refuses calendar access
+	     without asking. The first is read from macOS 14, the second before it. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>MacBar lists today's meetings and reminds you before each one starts.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>MacBar lists today's meetings and reminds you before each one starts.</string>
 </dict>
 </plist>

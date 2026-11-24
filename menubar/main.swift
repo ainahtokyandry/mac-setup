@@ -7,6 +7,7 @@
 //
 //   storage-bar    free space on the boot volume
 //   claude-usage   the three Claude usage limits
+//   meetings-bar   today's meetings, with a reminder before each
 //   job-search     the scheduled search's next run
 //
 // So nothing here knows what is being measured, and updating a section means
