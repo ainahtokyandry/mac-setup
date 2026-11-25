@@ -20,15 +20,17 @@ repository:
 | **Job search** | The next scheduled run, and whether one is in flight | [ainahtokyandry/job-search](https://github.com/ainahtokyandry/job-search) |
 
 So each tool keeps its own history, README and issues, and improving one means editing that
-repository — not this one. MacBar is built from whichever sections are checked out, and pulling
-a section and rebuilding is one command:
+repository — not this one. Running the installer again is an update: it fast-forwards the
+checkout of every section you chose and rebuilds MacBar around them, so picking up the latest of
+every section is one command:
 
 ```sh
-./install.sh --update macbar
+./install.sh macbar
 ```
 
-Any section can be switched off under **Sections** in the dropdown. A section that is off is gone
-from the menu bar line and from the dropdown, and stops running until it is switched back on.
+The installer asks which sections to include, and any section built in can be switched off later
+under **Sections** in the dropdown. A section that is off is gone from the menu bar line and from
+the dropdown, and stops running until it is switched back on.
 Unticking **Compact Display** spells the readings out in full:
 `118 GB / 494 GB · 5h 42% · 7d 61% · Opus 18% · ○ 14:00 Design review · ◷ Mon 08:00`.
 
@@ -60,7 +62,7 @@ launch is never activated, and is told to deactivate all the same so it can clea
 earlier run. A section written before `deactivate()` existed gets a default that does nothing: it
 is hidden, but keeps polling until MacBar quits.
 
-`menubar/build.sh` finds sections by convention under `$HOME/Projects` (or `MACBAR_SRC_DIR`):
+`menubar/build.sh` finds sections by convention under `$HOME/MacBar` (or `MACBAR_SRC_DIR`):
 
 ```
 <repo>/*Section.swift
@@ -71,7 +73,9 @@ A file only counts when it declares a `BarSection`, so an unrelated match in ano
 passed over. The build then generates the list of what it found and compiles it in. Adding a
 tool means writing one file in a new repository and cloning it, with no edit here, unless the
 tool needs a permission that macOS asks for with a usage string in the bundle's `Info.plist`.
-The meetings section does: the calendar string is in `menubar/Info.plist`.
+The meetings section does: the calendar string is in `menubar/Info.plist`. With the installer, a
+new section's repository is cloned into `~/MacBar` beside the others — where `--fresh`, should
+you ever pass it, moves it to the Trash along with everything else.
 
 Two constraints worth knowing, both from `swiftc`:
 
@@ -109,9 +113,9 @@ network:
 zsh -c "$(curl -fsSL https://raw.githubusercontent.com/ainahtokyandry/mac-setup/main/install.sh)"
 ```
 
-Use that form rather than `curl … | zsh`. A pipe occupies stdin, and job-search's setup asks
-questions that need the terminal. Arguments go after the command string, past a placeholder that
-lands in `$0`:
+Use that form rather than `curl … | zsh`. A pipe occupies stdin, and both the section questions
+and job-search's setup need the terminal. Arguments go after the command string, past a
+placeholder that lands in `$0`:
 
 ```sh
 zsh -c "$(curl -fsSL …/install.sh)" install --dry-run macbar
@@ -123,6 +127,10 @@ With the repository already cloned it is the same script:
 ./install.sh
 ```
 
+Run that way, the installer and the host come from your clone as it stands: an update pulls the
+sections, not the clone it runs from, so `git pull` there first to pick up changes to this
+repository. The one-liner always runs the latest of both.
+
 Either way, that installs both tools — job-search first, then MacBar. Name one to install just
 that:
 
@@ -130,12 +138,41 @@ that:
 ./install.sh macbar
 ```
 
+### Choosing sections
+
+Installing MacBar starts by asking which sections it should have, one question each, before
+anything is cloned:
+
+```
+==> Which sections should MacBar have? Return keeps the answer in capitals.
+  Storage       free space on the boot volume            [Y/n]
+  Claude usage  the three Claude usage limits            [Y/n]
+  Meetings      today's meetings; needs calendar access  [Y/n] n
+  Job search    the next scheduled job search run        [Y/n]
+```
+
+A section left out is not cloned for MacBar and not built in, even when its repository is there
+for another reason, and the old app it replaced, if any, is left where it is. The answers are
+remembered, as `skippedSections` in MacBar's preferences, so the next install asks with the same
+answers as its defaults, and uses them as they are when there is no terminal to ask in. The
+first install defaults to all four.
+
+`--sections` answers up front, with any of `storage`, `claude-usage`, `meetings` and
+`job-search`, comma separated, or `all`:
+
+```sh
+./install.sh --sections storage,meetings macbar
+```
+
+A section in `~/MacBar` that is none of the four — one written for this Mac alone — is built in
+whatever the answers.
+
 Options:
 
 | Option | Effect |
 | --- | --- |
-| `-d, --dir DIR` | Where checkouts live (default `$HOME/Projects`) |
-| `-u, --update` | `git pull --ff-only` in existing checkouts before building |
+| `-s, --sections LIST` | MacBar sections to include, instead of being asked |
+| `-f, --fresh` | Empty `$HOME/MacBar` into the Trash first, and start from fresh clones |
 | `-l, --login-items` | Register MacBar to open at login |
 | `-N, --no-launch` | Install without opening the app |
 | `-n, --dry-run` | Print every command instead of running it |
@@ -149,29 +186,43 @@ A dry run first is the cheap way to see exactly what will happen:
 
 ### What it does to your machine
 
-- **Clones** the section repositories into `$HOME/Projects` (or `--dir`). An existing checkout
-  of the same repository is reused wherever it already sits under that directory, whatever the
-  folder is called — nothing is re-cloned, and nothing is pulled unless you pass `--update`. A
+- **Clones** the repositories of the sections you chose into `$HOME/MacBar`. An existing
+  checkout is reused when it sits in its usual folder there — `StorageBar` or `storage-bar`,
+  `claude-usage`, `meetings-bar`, `job-search` — so running the installer again is an update,
+  not a reinstall: each checkout is fast-forwarded, and files of your own in them, such as
+  job-search's profile and reports, stay where they are. A checkout that cannot be
+  fast-forwarded — no network, or local changes in the way — is built as it stands, with a
+  warning. A checkout in a folder by any other name is not looked for: a second copy is cloned
+  beside it, and the build then stops on the duplicate section, so rename the folder first. A
   section that cannot be cloned is left out of the build rather than stopping it.
-- **Builds** MacBar with `swiftc -O` — this repository's host plus every section found — and
-  signs it ad hoc with `codesign`. The signing step is not optional: an unsigned bundle will not
-  launch on recent macOS versions.
+- **Empties** `$HOME/MacBar` first, only with `--fresh`. Everything in it goes to the Trash —
+  put back from there anything you miss — with two exceptions. The mac-setup checkout the
+  installer is running from stays, if it is in there. And job-search's personal files, the ones
+  git ignores there (profile, config, reports, logs, CVs), are copied into a fresh clone at the
+  same path, so its scheduled agent carries on. That clone is made before anything moves, so a
+  failed clone leaves the folder as it was; and while a job search is running the install stops
+  instead, with nothing moved. Every other section is then cloned afresh, so `--fresh` wants a
+  working connection: a section that fails to clone is left out of the rebuilt MacBar.
+- **Builds** MacBar with `swiftc -O` — this repository's host plus every section found, less the
+  ones left out — and signs it ad hoc with `codesign`. The signing step is not optional: an
+  unsigned bundle will not launch on recent macOS versions.
 - **Installs** the bundle into `/Applications`, falling back to `~/Applications` when
   `/Applications` is not writable, stopping any running copy first. No `sudo` anywhere.
-- **Retires** the apps MacBar replaces: it stops `StorageBar`, `ClaudeUsageBar` and
-  `JobSearchBar`, deletes any of their bundles under `/Applications` or `~/Applications`,
-  removes their login items, and unloads job-search's `com.jobsearch.menubar` agent. A copy
-  still sitting inside its own checkout is reported rather than deleted — that one is yours to
-  remove.
-- **Records** where the job-search checkout is, with
-  `defaults write local.macbar jobSearchDir …`, so that section works wherever the checkout
-  sits.
+- **Retires** the apps MacBar's sections replace, each only when its section is included: it
+  stops `StorageBar`, `ClaudeUsageBar` and `JobSearchBar`, deletes any of their bundles under
+  `/Applications` or `~/Applications`, removes their login items, and unloads job-search's
+  `com.jobsearch.menubar` agent. A copy still sitting inside its own checkout is reported rather
+  than deleted — that one is yours to remove.
+- **Records** which sections were left out, with
+  `defaults write local.macbar skippedSections …`, and, when the job search section is included,
+  where the job-search checkout is, with `defaults write local.macbar jobSearchDir …`, so that
+  section works wherever the checkout sits.
 - **Launches** MacBar, unless `--no-launch`.
 - **Hands over** to [job-search](https://github.com/ainahtokyandry/job-search)'s own `setup.sh`,
   which asks four questions — schedule, profile, background agent, menu bar indicator — and
   installs the `launchd` agents. Question 4 defaults to **no**, which is the right answer when
-  MacBar is installed: it already has a job search section, and saying yes means a second item
-  in the menu bar.
+  MacBar is installed with its job search section: saying yes means a second item in the menu
+  bar. With that section left out, yes is how the job search gets into the menu bar at all.
 
 ## Layout
 
@@ -183,18 +234,20 @@ menubar/
   Support.swift     the contract: BarSection, Segment, Palette, Fmt, MenuKit
   Info.plist        the bundle: LSUIElement so there is no Dock icon, and the calendar usage string
   build.sh          finds sections, generates their list, builds and signs
-install.sh          option parsing, preflight, checkouts, install, retire
+install.sh          options, section choice, preflight, checkouts, --fresh, install, retire
 README.md           this file
 ```
 
-Nothing under `menubar/` knows what is being measured. `Info.plist` and `Support.swift` are the
-only files that would change if MacBar were renamed.
+Nothing under `menubar/` knows what is being measured. If MacBar were renamed, `Info.plist`,
+`Support.swift` and `build.sh` — the bundle and binary it builds, and the checkout folder it
+looks in — are the files there that would change; the other Swift files mention it only in
+comments.
 
 Every installer setting has an environment variable behind the flag, which is what makes the
-one-liner composable: `MAC_SETUP_SRC_DIR`, `UPDATE`, `LOGIN_ITEMS`, `LAUNCH`, `DRY_RUN`.
+one-liner composable: `MAC_SETUP_SECTIONS`, `FRESH`, `LOGIN_ITEMS`, `LAUNCH`, `DRY_RUN`.
 
 ```sh
-MAC_SETUP_SRC_DIR=~/src LAUNCH=0 ./install.sh
+MAC_SETUP_SECTIONS=storage,claude-usage LAUNCH=0 ./install.sh
 ```
 
 `menubar/build.sh` takes `MACBAR_SRC_DIR` to choose where sections are looked for, and
@@ -202,7 +255,16 @@ MAC_SETUP_SRC_DIR=~/src LAUNCH=0 ./install.sh
 with a subset:
 
 ```sh
-MACBAR_SECTIONS=~/Projects/StorageBar/StorageSection.swift ./menubar/build.sh --run
+MACBAR_SECTIONS=~/MacBar/StorageBar/StorageSection.swift ./menubar/build.sh --run
+```
+
+`MACBAR_SKIP` works the other way round, leaving sections out by the name of the type they
+declare, also separated by colons. It is what the installer passes for the sections you declined,
+since a declined section's repository may still be checked out — job-search is a tool as well as
+a section:
+
+```sh
+MACBAR_SKIP=MeetingsSection:JobSearchSection ./menubar/build.sh --run
 ```
 
 ## Design notes
@@ -228,7 +290,13 @@ the host:
 ```
 
 For a change to a section, the same command rebuilds MacBar around it — `build.sh` reads that
-section straight out of its checkout, so there is nothing to copy or publish first.
+section straight out of its checkout, so there is nothing to copy or publish first. It looks in
+`~/MacBar`, where the installer keeps them; to build from working copies kept elsewhere, point it
+there:
+
+```sh
+MACBAR_SRC_DIR=~/Projects ./menubar/build.sh --run
+```
 
 The readings are also available without the menu bar, which is the quick way to check formatting
 after a change:
@@ -269,25 +337,6 @@ To rebuild and reinstall through the installer instead:
 ./install.sh macbar
 ```
 
-### Your editor will show errors that are not there
-
-Opening any of these repositories in an editor gives a wall of red:
-
-```
-Cannot find type 'BarSection' in scope
-Cannot find 'Palette' in scope
-Cannot find 'StorageSection' in scope
-```
-
-None of it is real. The module is assembled at build time out of several checkouts —
-`menubar/` here, plus one file from each section repository — and SourceKit-LSP has no manifest
-describing that, so it type-checks each file on its own, where of course the other half is
-missing. `menubar/build.sh` is the source of truth; if it compiles, the code is fine.
-
-A `Package.swift` would not fix it either, because there is no single package to describe: the
-module spans repositories by design. Live with the squiggles, or turn Swift diagnostics off for
-these folders.
-
 ## Uninstalling
 
 MacBar is a self-contained bundle:
@@ -302,8 +351,12 @@ job-search installs `launchd` agents, so it has its own uninstaller, which keeps
 and logs:
 
 ```sh
-cd ~/Projects/job-search && ./uninstall.sh
+cd ~/MacBar/job-search && ./uninstall.sh
 ```
+
+The checkouts stay in `~/MacBar` until you delete that folder.
+job-search keeps its profile, reports and logs inside its checkout, so move out anything you want
+to keep before deleting it.
 
 If you added MacBar as a login item, remove that entry in **System Settings > General > Login
 Items & Extensions** as well.

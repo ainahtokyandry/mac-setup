@@ -6,7 +6,7 @@
 #   ./build.sh /path/to.app    build somewhere else
 #
 # Sections live in their own repositories, one per tool, and are found by
-# convention under MACBAR_SRC_DIR (default $HOME/Projects):
+# convention under MACBAR_SRC_DIR (default $HOME/MacBar):
 #
 #   <repo>/*Section.swift
 #   <repo>/menubar/*Section.swift
@@ -15,7 +15,9 @@
 # unrelated match in some other project is passed over. Whatever is present goes
 # in; a repository that is not checked out is simply not a section of this build.
 # MACBAR_SECTIONS overrides the search with an explicit list of files, separated
-# by colons.
+# by colons. MACBAR_SKIP leaves sections out by the name of the type they
+# declare, also separated by colons: it is how the installer drops a section the
+# user declined, whose repository may still be checked out for another reason.
 #
 # A section is one file, and its name is the name of its type — swiftc requires
 # distinct basenames within a module, so `Section.swift` in two repositories
@@ -28,7 +30,7 @@
 set -euo pipefail
 
 HERE="${0:A:h}"
-SRC_DIR="${MACBAR_SRC_DIR:-$HOME/Projects}"
+SRC_DIR="${MACBAR_SRC_DIR:-$HOME/MacBar}"
 RUN=0
 APP="$HERE/MacBar.app"
 
@@ -56,7 +58,8 @@ section_type() {
   sed -nE '/BarSection/ s/^[[:space:]]*(public[[:space:]]+)?(final[[:space:]]+)?class[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\3/p' "$file"
 }
 
-typeset -a files chosen types
+typeset -a files chosen types skip skipped
+skip=(${(s.:.)${MACBAR_SKIP:-}})
 
 if [ -n "${MACBAR_SECTIONS:-}" ]; then
   files=(${(s.:.)MACBAR_SECTIONS})
@@ -76,12 +79,19 @@ for f in $files; do
   found=(${found:#})
   case ${#found} in
     0) continue ;;
-    1) chosen+=("$f"); types+=("${found[1]}") ;;
+    1) if (( ${skip[(Ie)${found[1]}]} )); then
+         skipped+=("${found[1]}")
+       else
+         chosen+=("$f"); types+=("${found[1]}")
+       fi ;;
     *) die "$f declares more than one BarSection type (${found[*]}) — a section file should declare exactly one" ;;
   esac
 done
 
-[ ${#chosen} -gt 0 ] || die "no sections found under $SRC_DIR — clone at least one section repository, or set MACBAR_SECTIONS"
+if [ ${#chosen} -eq 0 ]; then
+  [ ${#skipped} -eq 0 ] || die "every section found is left out by MACBAR_SKIP (${(u)skipped[*]})"
+  die "no sections found under $SRC_DIR — clone at least one section repository there, or point MACBAR_SRC_DIR at the folder that holds them"
+fi
 
 # Two checkouts of the same section would collide in the generated list.
 if [ ${#${(u)types}} -ne ${#types} ]; then
@@ -92,6 +102,7 @@ print -- "Sections:"
 for i in {1..${#chosen}}; do
   print -- "  ${types[$i]}  ←  ${chosen[$i]}"
 done
+[ ${#skipped} -eq 0 ] || print -- "Left out: ${(u)skipped[*]}"
 
 # ----------------------------------------------------------------- generated list
 
